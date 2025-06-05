@@ -130,6 +130,11 @@ func (b *backend) pathSign() *framework.Path {
 				Type:        framework.TypeString,
 				Description: "The base64-encoded input data",
 			},
+			
+			"chain_id": {
+				Type:        framework.TypeString,
+				Description: "The chain ID to use for signing",
+			},
 
 			"context": {
 				Type: framework.TypeString,

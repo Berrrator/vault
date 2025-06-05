@@ -17,6 +17,7 @@ func (b *backend) getReadLockedPolicy(ctx context.Context, s logical.Storage, na
 		Storage: s,
 		Name:    name,
 	}, b.GetRandomReader())
+	
 	if err != nil {
 		return nil, err
 	}
