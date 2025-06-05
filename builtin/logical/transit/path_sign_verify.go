@@ -11,10 +11,11 @@ import (
 	"strconv"
 	"strings"
 
+	"transit-eth/sdk/helper/keysutil"
+
 	"github.com/hashicorp/go-secure-stdlib/parseutil"
 	"github.com/hashicorp/vault/sdk/framework"
 	"github.com/hashicorp/vault/sdk/helper/errutil"
-	"github.com/hashicorp/vault/sdk/helper/keysutil"
 	"github.com/hashicorp/vault/sdk/logical"
 	"github.com/mitchellh/mapstructure"
 )
@@ -41,6 +42,7 @@ type commonSignVerifyApiArgs struct {
 	prehashed     bool
 	sigAlgorithm  string
 	saltLength    int
+	chainId       int64
 }
 
 // signApiArgs represents the input arguments that apply to all members of the batch
@@ -130,10 +132,10 @@ func (b *backend) pathSign() *framework.Path {
 				Type:        framework.TypeString,
 				Description: "The base64-encoded input data",
 			},
-			
+
 			"chain_id": {
 				Type:        framework.TypeString,
-				Description: "The chain ID to use for signing",
+				Description: "The chain ID string",
 			},
 
 			"context": {
@@ -201,7 +203,7 @@ Options are 'pss' or 'pkcs1v15'. Defaults to 'pss'`,
 
 			"marshaling_algorithm": {
 				Type:        framework.TypeString,
-				Default:     "asn1",
+				Default:     "raw",
 				Description: `The method by which to marshal the signature. The default is 'asn1' which is used by openssl and X.509. It can also be set to 'jws' which is used for JWT signatures; setting it to this will also cause the encoding of the signature to be url-safe base64 instead of using standard base64 encoding. Currently only valid for ECDSA P-256 key types".`,
 			},
 
@@ -509,13 +511,13 @@ func (b *backend) getPolicySignArgs(ctx context.Context, p *keysutil.Policy, arg
 		return policySignArgs{}, fmt.Errorf("unable to decode input: %s", err)
 	}
 
-	if p.Type.HashSignatureInput() && !args.prehashed {
-		hf := keysutil.HashFuncMap[args.hashAlgorithm]()
-		if hf != nil {
-			hf.Write(input)
-			input = hf.Sum(nil)
-		}
-	}
+	//if p.Type.HashSignatureInput() && !args.prehashed {
+	//	hf := keysutil.HashFuncMap[args.hashAlgorithm]()
+	//	if hf != nil {
+	//		hf.Write(input)
+	//		input = hf.Sum(nil)
+	//	}
+	//}
 
 	keyContext, err := decodeBase64Arg(item["context"])
 	if err != nil {
@@ -531,6 +533,7 @@ func (b *backend) getPolicySignArgs(ctx context.Context, p *keysutil.Policy, arg
 			Marshaling:    args.marshaling,
 			SaltLength:    args.saltLength,
 			SigAlgorithm:  args.sigAlgorithm,
+			ChainId:       args.chainId,
 		},
 	}
 
@@ -569,6 +572,12 @@ func getCommonSignVerifyApiArgs(d *framework.FieldData) (commonSignVerifyApiArgs
 		return commonSignVerifyApiArgs{}, fmt.Errorf("invalid hash algorithm %q", hashAlgorithmStr)
 	}
 
+	chainIdStr := d.Get("chain_id").(string)
+	chainId, err := strconv.ParseInt(chainIdStr, 10, 64)
+	if err != nil {
+		return commonSignVerifyApiArgs{}, fmt.Errorf("invalid chain ID %q", chainIdStr)
+	}
+
 	marshalingStr := d.Get("marshaling_algorithm").(string)
 	marshaling, ok := keysutil.MarshalingTypeMap[marshalingStr]
 	if !ok {
@@ -589,6 +598,7 @@ func getCommonSignVerifyApiArgs(d *framework.FieldData) (commonSignVerifyApiArgs
 		prehashed:     prehashed,
 		sigAlgorithm:  sigAlgorithm,
 		saltLength:    saltLength,
+		chainId:       chainId,
 	}, nil
 }
 

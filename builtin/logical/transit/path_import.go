@@ -17,9 +17,10 @@ import (
 	"strings"
 	"time"
 
+	"transit-eth/sdk/helper/keysutil"
+
 	"github.com/hashicorp/vault/helper/constants"
 	"github.com/hashicorp/vault/sdk/framework"
-	"github.com/hashicorp/vault/sdk/helper/keysutil"
 	"github.com/hashicorp/vault/sdk/logical"
 	"github.com/tink-crypto/tink-go/v2/kwp/subtle"
 )
@@ -43,11 +44,11 @@ func (b *backend) pathImport() *framework.Path {
 			},
 			"type": {
 				Type:    framework.TypeString,
-				Default: "aes256-gcm96",
+				Default: "secp256k1",
 				Description: `The type of key being imported. Currently, "aes128-gcm96" (symmetric), "aes256-gcm96" (symmetric), "ecdsa-p256"
 (asymmetric), "ecdsa-p384" (asymmetric), "ecdsa-p521" (asymmetric), "ed25519" (asymmetric), "rsa-2048" (asymmetric), "rsa-3072"
 (asymmetric), "rsa-4096" (asymmetric), "ml-dsa-44 (asymmetric)", "ml-dsa-65 (asymmetric)", "ml-dsa-87 (asymmetric)", "hmac", "aes128-cmac", 
-"aes192-cmac", aes256-cmac" are supported.  Defaults to "aes256-gcm96".
+"aes192-cmac", "aes256-cmac", "secp256k1" are supported.  Defaults to "secp256k1".
 `,
 			},
 			"hash_function": {
@@ -206,6 +207,8 @@ func (b *backend) pathImportWrite(ctx context.Context, req *logical.Request, d *
 		polReq.KeyType = keysutil.KeyType_ECDSA_P384
 	case "ecdsa-p521":
 		polReq.KeyType = keysutil.KeyType_ECDSA_P521
+	case "secp256k1":
+		polReq.KeyType = keysutil.KeyType_SECP256K1
 	case "ed25519":
 		polReq.KeyType = keysutil.KeyType_ED25519
 	case "rsa-2048":

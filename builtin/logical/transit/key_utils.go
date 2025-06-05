@@ -8,7 +8,8 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/hashicorp/vault/sdk/helper/keysutil"
+	"transit-eth/sdk/helper/keysutil"
+
 	"github.com/hashicorp/vault/sdk/logical"
 )
 
@@ -17,7 +18,6 @@ func (b *backend) getReadLockedPolicy(ctx context.Context, s logical.Storage, na
 		Storage: s,
 		Name:    name,
 	}, b.GetRandomReader())
-	
 	if err != nil {
 		return nil, err
 	}

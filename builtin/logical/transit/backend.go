@@ -1,28 +1,25 @@
-// Copyright (c) HashiCorp, Inc.
-// SPDX-License-Identifier: BUSL-1.1
-
 package transit
 
 import (
 	"context"
 	"errors"
-	"fmt"
 	"io"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
+	"transit-eth/sdk/helper/keysutil"
+
 	"github.com/hashicorp/go-multierror"
 	"github.com/hashicorp/vault/helper/constants"
 	"github.com/hashicorp/vault/sdk/framework"
 	"github.com/hashicorp/vault/sdk/helper/consts"
-	"github.com/hashicorp/vault/sdk/helper/keysutil"
 	"github.com/hashicorp/vault/sdk/logical"
 )
 
 const (
-	operationPrefixTransit = "transit"
+	operationPrefixTransit = "transiteth"
 
 	// Minimum cache size for transit backend
 	minCacheSize = 10
@@ -84,12 +81,12 @@ func Backend(ctx context.Context, conf *logical.BackendConfig) (*backend, error)
 			b.pathImportCertChain(),
 		},
 
-		Secrets:        []*framework.Secret{},
-		Invalidate:     b.invalidate,
-		BackendType:    logical.TypeLogical,
-		PeriodicFunc:   b.periodicFunc,
-		InitializeFunc: b.initialize,
-		Clean:          b.cleanup,
+		Secrets: []*framework.Secret{},
+		//Invalidate:   b.invalidate,
+		BackendType: logical.TypeLogical,
+		//PeriodicFunc: b.periodicFunc,
+		//InitializeFunc: b.initialize,
+		//Clean: b.cleanup,
 	}
 
 	b.backendUUID = conf.BackendUUID
@@ -101,9 +98,12 @@ func Backend(ctx context.Context, conf *logical.BackendConfig) (*backend, error)
 		var err error
 		cacheSize, err = GetCacheSizeFromStorage(ctx, conf.StorageView)
 		if err != nil {
-			return nil, fmt.Errorf("Error retrieving cache size from storage: %w", err)
+			b.Logger().Warn("Error retrieving cache size from storage: %w", err)
 		}
-
+		//if err != nil {
+		//	return nil, fmt.Errorf("Error retrieving cache size from storage: %w", err)
+		//}
+		cacheSize = 5
 		if cacheSize != 0 && cacheSize < minCacheSize {
 			b.Logger().Warn("size %d is less than minimum %d. Cache size is set to %d", cacheSize, minCacheSize, minCacheSize)
 			cacheSize = minCacheSize

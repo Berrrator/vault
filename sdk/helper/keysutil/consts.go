@@ -26,6 +26,7 @@ const (
 	HashTypeSHA3256
 	HashTypeSHA3384
 	HashTypeSHA3512
+	//HashTypeKeccak256
 )
 
 //go:generate enumer -type=MarshalingType -trimprefix=MarshalingType -transform=snake
@@ -35,6 +36,7 @@ const (
 	_ MarshalingType = iota
 	MarshalingTypeASN1
 	MarshalingTypeJWS
+	MarshalingTypeRaw
 )
 
 var (
@@ -49,6 +51,7 @@ var (
 		"sha3-256": HashTypeSHA3256,
 		"sha3-384": HashTypeSHA3384,
 		"sha3-512": HashTypeSHA3512,
+		//"keccak-256": HashTypeKeccak256,
 	}
 
 	HashFuncMap = map[HashType]func() hash.Hash{
@@ -62,6 +65,7 @@ var (
 		HashTypeSHA3256: sha3.New256,
 		HashTypeSHA3384: sha3.New384,
 		HashTypeSHA3512: sha3.New512,
+		//HashTypeKeccak256: sha3.NewLegacyKeccak256,
 	}
 
 	CryptoHashMap = map[HashType]crypto.Hash{
@@ -75,7 +79,12 @@ var (
 		HashTypeSHA3256: crypto.SHA3_256,
 		HashTypeSHA3384: crypto.SHA3_384,
 		HashTypeSHA3512: crypto.SHA3_512,
+		//HashTypeKeccak256: 14,
 	}
 
-	MarshalingTypeMap = _MarshalingTypeNameToValueMap
+	MarshalingTypeMap = map[string]MarshalingType{
+		"asn1": MarshalingTypeASN1,
+		"jws":  MarshalingTypeJWS,
+		"raw":  MarshalingTypeRaw,
+	}
 )

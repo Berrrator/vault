@@ -6,7 +6,7 @@ package transit
 import (
 	"testing"
 
-	"github.com/hashicorp/vault/sdk/helper/keysutil"
+	"transit-eth/sdk/helper/keysutil"
 )
 
 // Test_parsePaddingSchemeArg validate the various use cases we have around parsing

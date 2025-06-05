@@ -12,8 +12,9 @@ import (
 	"strings"
 	"testing"
 
+	"transit-eth/sdk/helper/keysutil"
+
 	uuid "github.com/hashicorp/go-uuid"
-	"github.com/hashicorp/vault/sdk/helper/keysutil"
 	"github.com/hashicorp/vault/sdk/logical"
 	"github.com/mitchellh/mapstructure"
 )

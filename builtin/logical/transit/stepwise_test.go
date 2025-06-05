@@ -9,10 +9,11 @@ import (
 	"os"
 	"testing"
 
+	"transit-eth/sdk/helper/keysutil"
+
 	stepwise "github.com/hashicorp/vault-testing-stepwise"
 	dockerEnvironment "github.com/hashicorp/vault-testing-stepwise/environments/docker"
 	"github.com/hashicorp/vault/api"
-	"github.com/hashicorp/vault/sdk/helper/keysutil"
 	"github.com/mitchellh/mapstructure"
 )
 

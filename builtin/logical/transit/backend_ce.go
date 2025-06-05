@@ -8,7 +8,8 @@ package transit
 import (
 	"context"
 
-	"github.com/hashicorp/vault/sdk/helper/keysutil"
+	"transit-eth/sdk/helper/keysutil"
+
 	"github.com/hashicorp/vault/sdk/logical"
 )
 

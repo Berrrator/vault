@@ -19,6 +19,7 @@ import (
 	"crypto/x509"
 	"encoding/asn1"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
 	"errors"
@@ -33,6 +34,10 @@ import (
 	"sync/atomic"
 	"time"
 
+	ethcrypto "github.com/ethereum/go-ethereum/crypto"
+	"github.com/ethereum/go-ethereum/crypto/secp256k1"
+
+	"github.com/ethereum/go-ethereum/core/types"
 	"github.com/hashicorp/errwrap"
 	"github.com/hashicorp/go-uuid"
 	"github.com/hashicorp/vault/sdk/helper/cryptoutil"
@@ -75,6 +80,7 @@ const (
 	KeyType_ML_DSA
 	KeyType_HYBRID
 	KeyType_AES192_CMAC
+	KeyType_SECP256K1
 	// If adding to this list please update allTestKeyTypes in policy_test.go
 )
 
@@ -156,6 +162,7 @@ type BackupInfo struct {
 type SigningOptions struct {
 	HashAlgorithm    HashType
 	Marshaling       MarshalingType
+	ChainId          int64
 	SaltLength       int
 	SigAlgorithm     string
 	SigContext       string // Provide a context for Ed25519ctx signatures
@@ -191,7 +198,7 @@ func (kt KeyType) DecryptionSupported() bool {
 
 func (kt KeyType) SigningSupported() bool {
 	switch kt {
-	case KeyType_ECDSA_P256, KeyType_ECDSA_P384, KeyType_ECDSA_P521, KeyType_ED25519, KeyType_RSA2048, KeyType_RSA3072, KeyType_RSA4096, KeyType_MANAGED_KEY, KeyType_ML_DSA, KeyType_HYBRID:
+	case KeyType_ECDSA_P256, KeyType_ECDSA_P384, KeyType_ECDSA_P521, KeyType_ED25519, KeyType_RSA2048, KeyType_RSA3072, KeyType_RSA4096, KeyType_MANAGED_KEY, KeyType_ML_DSA, KeyType_HYBRID, KeyType_SECP256K1:
 		return true
 	}
 	return false
@@ -199,7 +206,7 @@ func (kt KeyType) SigningSupported() bool {
 
 func (kt KeyType) HashSignatureInput() bool {
 	switch kt {
-	case KeyType_ECDSA_P256, KeyType_ECDSA_P384, KeyType_ECDSA_P521, KeyType_RSA2048, KeyType_RSA3072, KeyType_RSA4096, KeyType_MANAGED_KEY:
+	case KeyType_ECDSA_P256, KeyType_ECDSA_P384, KeyType_ECDSA_P521, KeyType_RSA2048, KeyType_RSA3072, KeyType_RSA4096, KeyType_MANAGED_KEY, KeyType_SECP256K1:
 		return true
 	}
 	return false
@@ -252,7 +259,7 @@ func (kt KeyType) IsPQC() bool {
 
 func (kt KeyType) ImportPublicKeySupported() bool {
 	switch kt {
-	case KeyType_RSA2048, KeyType_RSA3072, KeyType_RSA4096, KeyType_ECDSA_P256, KeyType_ECDSA_P384, KeyType_ECDSA_P521, KeyType_ED25519:
+	case KeyType_RSA2048, KeyType_RSA3072, KeyType_RSA4096, KeyType_ECDSA_P256, KeyType_ECDSA_P384, KeyType_ECDSA_P521, KeyType_ED25519, KeyType_SECP256K1:
 		return true
 	}
 	return false
@@ -303,6 +310,8 @@ func (kt KeyType) String() string {
 		return "hybrid"
 	case KeyType_AES192_CMAC:
 		return "aes192-cmac"
+	case KeyType_SECP256K1:
+		return "secp256k1"
 	}
 
 	return "[unknown]"
@@ -1271,8 +1280,14 @@ func (p *Policy) SignWithOptions(ver int, context, input []byte, options *Signin
 	marshaling := options.Marshaling
 	saltLength := options.SaltLength
 	sigAlgorithm := options.SigAlgorithm
+	chainId := options.ChainId
 
 	switch p.Type {
+	case KeyType_SECP256K1:
+		sig, err = SignSecp256k1Message(input, keyParams, chainId)
+		if err != nil {
+			return nil, err
+		}
 	case KeyType_ECDSA_P256, KeyType_ECDSA_P384, KeyType_ECDSA_P521:
 		sig, err = signWithECDSA(p.Type, keyParams, input, marshaling)
 	case KeyType_ED25519:
@@ -1320,6 +1335,10 @@ func (p *Policy) SignWithOptions(ver int, context, input []byte, options *Signin
 		encoded = base64.StdEncoding.EncodeToString(sig)
 	case MarshalingTypeJWS:
 		encoded = base64.RawURLEncoding.EncodeToString(sig)
+	case MarshalingTypeRaw:
+		encoded = hex.EncodeToString(sig)
+	default:
+		encoded = hex.EncodeToString(sig)
 	}
 	res := &SigningResult{
 		Signature: p.getVersionPrefix(ver) + encoded,
@@ -1435,6 +1454,7 @@ func (p *Policy) VerifySignature(context, input []byte, hashAlgorithm HashType, 
 	})
 }
 
+// WILL NOT BE USED
 func (p *Policy) VerifySignatureWithOptions(context, input []byte, sig string, options *SigningOptions) (bool, error) {
 	if !p.Type.SigningSupported() {
 		return false, errutil.UserError{Err: fmt.Sprintf("message verification not supported for key type %v", p.Type)}
@@ -1675,27 +1695,13 @@ func (p *Policy) ImportPublicOrPrivate(ctx context.Context, storage logical.Stor
 		var parsedKey any
 		var err error
 		if isPrivateKey {
-			parsedKey, err = x509.ParsePKCS8PrivateKey(key)
+			parsedKey, err = tryParseSecp256k1FromPKCS8(key)
+			if parsedKey == nil || err != nil {
+				return fmt.Errorf("failed to parse secp256k1 private key (PKCS#8/SEC1): %w", err)
+			}
+			err = entry.parseFromKey(KeyType_SECP256K1, parsedKey)
 			if err != nil {
-				if strings.Contains(err.Error(), "unknown elliptic curve") {
-					var edErr error
-					parsedKey, edErr = ParsePKCS8Ed25519PrivateKey(key)
-					if edErr != nil {
-						return fmt.Errorf("error parsing asymmetric key:\n - assuming contents are an ed25519 private key: %s\n - original error: %v", edErr, err)
-					}
-
-					// Parsing as Ed25519-in-PKCS8-ECPrivateKey succeeded!
-				} else if strings.Contains(err.Error(), oidSignatureRSAPSS.String()) {
-					var rsaErr error
-					parsedKey, rsaErr = ParsePKCS8RSAPSSPrivateKey(key)
-					if rsaErr != nil {
-						return fmt.Errorf("error parsing asymmetric key:\n - assuming contents are an RSA/PSS private key: %v\n - original error: %w", rsaErr, err)
-					}
-
-					// Parsing as RSA-PSS in PKCS8 succeeded!
-				} else {
-					return fmt.Errorf("error parsing asymmetric key: %s", err)
-				}
+				return err
 			}
 		} else {
 			pemBlock, _ := pem.Decode(key)
@@ -1707,11 +1713,6 @@ func (p *Policy) ImportPublicOrPrivate(ctx context.Context, storage logical.Stor
 			if err != nil {
 				return fmt.Errorf("error parsing public key: %w", err)
 			}
-		}
-
-		err = entry.parseFromKey(p.Type, parsedKey)
-		if err != nil {
-			return err
 		}
 	}
 
@@ -2406,103 +2407,47 @@ func (p *Policy) ImportPrivateKeyForVersion(ctx context.Context, storage logical
 }
 
 func (ke *KeyEntry) parseFromKey(PolKeyType KeyType, parsedKey any) error {
-	switch parsedKey.(type) {
-	case *ecdsa.PrivateKey, *ecdsa.PublicKey:
-		if PolKeyType != KeyType_ECDSA_P256 && PolKeyType != KeyType_ECDSA_P384 && PolKeyType != KeyType_ECDSA_P521 {
-			return fmt.Errorf("invalid key type: expected %s, got %T", PolKeyType, parsedKey)
+	switch PolKeyType {
+	case KeyType_SECP256K1:
+		priv, ok := parsedKey.(*ecdsa.PrivateKey)
+		if !ok {
+			return fmt.Errorf("expected *ecdsa.PrivateKey for secp256k1, got %T", parsedKey)
 		}
 
-		curve := elliptic.P256()
-		if PolKeyType == KeyType_ECDSA_P384 {
-			curve = elliptic.P384()
-		} else if PolKeyType == KeyType_ECDSA_P521 {
-			curve = elliptic.P521()
+		if priv.Curve == nil || priv.Curve.Params().BitSize != 256 {
+			return fmt.Errorf("invalid curve: expected secp256k1, got nil or wrong bitsize")
 		}
 
-		var derBytes []byte
-		var err error
-		ecdsaKey, ok := parsedKey.(*ecdsa.PrivateKey)
-		if ok {
-
-			if ecdsaKey.Curve != curve {
-				return fmt.Errorf("invalid curve: expected %s, got %s", curve.Params().Name, ecdsaKey.Curve.Params().Name)
-			}
-
-			ke.EC_D = ecdsaKey.D
-			ke.EC_X = ecdsaKey.X
-			ke.EC_Y = ecdsaKey.Y
-
-			derBytes, err = x509.MarshalPKIXPublicKey(ecdsaKey.Public())
-			if err != nil {
-				return errwrap.Wrapf("error marshaling public key: {{err}}", err)
-			}
-		} else {
-			ecdsaKey := parsedKey.(*ecdsa.PublicKey)
-
-			if ecdsaKey.Curve != curve {
-				return fmt.Errorf("invalid curve: expected %s, got %s", curve.Params().Name, ecdsaKey.Curve.Params().Name)
-			}
-
-			ke.EC_X = ecdsaKey.X
-			ke.EC_Y = ecdsaKey.Y
-
-			derBytes, err = x509.MarshalPKIXPublicKey(ecdsaKey)
-			if err != nil {
-				return errwrap.Wrapf("error marshaling public key: {{err}}", err)
-			}
+		s256 := secp256k1.S256()
+		curve := priv.Curve
+		if curve == nil ||
+			curve.Params().P.Cmp(s256.Params().P) != 0 ||
+			curve.Params().N.Cmp(s256.Params().N) != 0 ||
+			curve.Params().B.Cmp(s256.Params().B) != 0 ||
+			curve.Params().Gx.Cmp(s256.Params().Gx) != 0 ||
+			curve.Params().Gy.Cmp(s256.Params().Gy) != 0 {
+			return fmt.Errorf("invalid curve: expected secp256k1, got unknown curve")
 		}
 
-		pemBlock := &pem.Block{
-			Type:  "PUBLIC KEY",
-			Bytes: derBytes,
-		}
-		pemBytes := pem.EncodeToMemory(pemBlock)
-		if pemBytes == nil || len(pemBytes) == 0 {
-			return fmt.Errorf("error PEM-encoding public key")
-		}
-		ke.FormattedPublicKey = string(pemBytes)
-	case ed25519.PrivateKey, ed25519.PublicKey:
-		if PolKeyType != KeyType_ED25519 {
-			return fmt.Errorf("invalid key type: expected %s, got %T", PolKeyType, parsedKey)
+		ke.EC_D = priv.D
+		ke.EC_X = priv.X
+		ke.EC_Y = priv.Y
+
+		privateKey := &ecdsa.PrivateKey{
+			PublicKey: ecdsa.PublicKey{
+				Curve: s256,
+				X:     priv.X,
+				Y:     priv.Y,
+			},
+			D: priv.D,
 		}
 
-		privateKey, ok := parsedKey.(ed25519.PrivateKey)
-		if ok {
-			ke.Key = privateKey
-			publicKey := privateKey.Public().(ed25519.PublicKey)
-			ke.FormattedPublicKey = base64.StdEncoding.EncodeToString(publicKey)
-		} else {
-			publicKey := parsedKey.(ed25519.PublicKey)
-			ke.FormattedPublicKey = base64.StdEncoding.EncodeToString(publicKey)
-		}
-	case *rsa.PrivateKey, *rsa.PublicKey:
-		if PolKeyType != KeyType_RSA2048 && PolKeyType != KeyType_RSA3072 && PolKeyType != KeyType_RSA4096 {
-			return fmt.Errorf("invalid key type: expected %s, got %T", PolKeyType, parsedKey)
-		}
+		ke.Key = ethcrypto.FromECDSA(privateKey)
 
-		keyBytes := 256
-		if PolKeyType == KeyType_RSA3072 {
-			keyBytes = 384
-		} else if PolKeyType == KeyType_RSA4096 {
-			keyBytes = 512
-		}
+		ke.FormattedPublicKey = hex.EncodeToString(ethcrypto.FromECDSAPub(&privateKey.PublicKey))
 
-		rsaKey, ok := parsedKey.(*rsa.PrivateKey)
-		if ok {
-			if rsaKey.Size() != keyBytes {
-				return fmt.Errorf("invalid key size: expected %d bytes, got %d bytes", keyBytes, rsaKey.Size())
-			}
-			ke.RSAKey = rsaKey
-			ke.RSAPublicKey = rsaKey.Public().(*rsa.PublicKey)
-		} else {
-			rsaKey := parsedKey.(*rsa.PublicKey)
-			if rsaKey.Size() != keyBytes {
-				return fmt.Errorf("invalid key size: expected %d bytes, got %d bytes", keyBytes, rsaKey.Size())
-			}
-			ke.RSAPublicKey = rsaKey
-		}
 	default:
-		return fmt.Errorf("invalid key type: expected %s, got %T", PolKeyType, parsedKey)
+		return fmt.Errorf("unsupported key type: %v", PolKeyType)
 	}
 
 	return nil
@@ -2612,15 +2557,17 @@ func (p *Policy) CreateCsr(keyVersion int, csrTemplate *x509.CertificateRequest)
 
 	var key crypto.Signer
 	switch p.Type {
-	case KeyType_ECDSA_P256, KeyType_ECDSA_P384, KeyType_ECDSA_P521:
+	case KeyType_ECDSA_P256, KeyType_ECDSA_P384, KeyType_ECDSA_P521, KeyType_SECP256K1:
 		var curve elliptic.Curve
 		switch p.Type {
 		case KeyType_ECDSA_P384:
 			curve = elliptic.P384()
 		case KeyType_ECDSA_P521:
 			curve = elliptic.P521()
+		case KeyType_SECP256K1:
+			curve = secp256k1.S256()
 		default:
-			curve = elliptic.P256()
+			curve = secp256k1.S256()
 		}
 
 		key = &ecdsa.PrivateKey{
@@ -2664,7 +2611,7 @@ func (p *Policy) ValidateLeafCertKeyMatch(keyVersion int, certPublicKeyAlgorithm
 
 	var keyTypeMatches bool
 	switch p.Type {
-	case KeyType_ECDSA_P256, KeyType_ECDSA_P384, KeyType_ECDSA_P521:
+	case KeyType_ECDSA_P256, KeyType_ECDSA_P384, KeyType_ECDSA_P521, KeyType_SECP256K1:
 		if certPublicKeyAlgorithm == x509.ECDSA {
 			keyTypeMatches = true
 		}
@@ -2815,4 +2762,73 @@ func generateECDSAKey(keyType KeyType, entry *KeyEntry) error {
 	entry.FormattedPublicKey = string(pemBytes)
 
 	return nil
+}
+
+func tryParseSecp256k1FromPKCS8(der []byte) (*ecdsa.PrivateKey, error) {
+	var pkcs8 struct {
+		Version int
+		Algo    struct {
+			Algorithm  asn1.ObjectIdentifier
+			Parameters asn1.ObjectIdentifier
+		}
+		PrivateKey []byte
+	}
+	_, err := asn1.Unmarshal(der, &pkcs8)
+	if err != nil {
+		return nil, err
+	}
+	secp256k1OID := asn1.ObjectIdentifier{1, 3, 132, 0, 10}
+	if !pkcs8.Algo.Parameters.Equal(secp256k1OID) {
+		return nil, fmt.Errorf("not a secp256k1 key (OID mismatch)")
+	}
+	var sec1 struct {
+		Version       int
+		PrivateKey    []byte
+		NamedCurveOID asn1.ObjectIdentifier `asn1:"optional,explicit,tag:0"`
+		PublicKey     asn1.BitString        `asn1:"optional,explicit,tag:1"`
+	}
+	_, err = asn1.Unmarshal(pkcs8.PrivateKey, &sec1)
+	if err != nil {
+		return nil, err
+	}
+	if len(sec1.PrivateKey) != 32 {
+		return nil, fmt.Errorf("secp256k1 private key must be 32 bytes")
+	}
+	return ethcrypto.ToECDSA(sec1.PrivateKey)
+}
+
+func SignSecp256k1Message(msg []byte, keyParams KeyEntry, chainId int64) ([]byte, error) {
+	if keyParams.EC_D == nil || keyParams.EC_X == nil || keyParams.EC_Y == nil {
+		return nil, errors.New("key components are missing")
+	}
+
+	tx := &types.Transaction{}
+	err := tx.UnmarshalJSON(msg)
+	if err != nil {
+		return nil, err
+	}
+	bigChainId := big.NewInt(chainId)
+
+	signer := types.NewEIP155Signer(bigChainId)
+
+	privateKey := &ecdsa.PrivateKey{
+		PublicKey: ecdsa.PublicKey{
+			Curve: secp256k1.S256(),
+			X:     keyParams.EC_X,
+			Y:     keyParams.EC_Y,
+		},
+		D: keyParams.EC_D,
+	}
+
+	signedTx, err := types.SignTx(tx, signer, privateKey)
+	if err != nil {
+		return nil, err
+	}
+
+	var txBuf bytes.Buffer
+	if err := signedTx.EncodeRLP(&txBuf); err != nil {
+		return nil, err
+	}
+
+	return txBuf.Bytes(), nil
 }

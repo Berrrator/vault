@@ -14,10 +14,11 @@ import (
 	"strings"
 	"time"
 
+	"transit-eth/sdk/helper/keysutil"
+
 	"github.com/fatih/structs"
 	"github.com/hashicorp/vault/helper/constants"
 	"github.com/hashicorp/vault/sdk/framework"
-	"github.com/hashicorp/vault/sdk/helper/keysutil"
 	"github.com/hashicorp/vault/sdk/logical"
 	"golang.org/x/crypto/ed25519"
 )
@@ -57,11 +58,11 @@ func (b *backend) pathKeys() *framework.Path {
 
 			"type": {
 				Type:    framework.TypeString,
-				Default: "aes256-gcm96",
+				Default: "secp256k1",
 				Description: `
 The type of key to create. Currently, "aes128-gcm96" (symmetric), "aes256-gcm96" (symmetric), "ecdsa-p256"
 (asymmetric), "ecdsa-p384" (asymmetric), "ecdsa-p521" (asymmetric), "ed25519" (asymmetric), "rsa-2048" (asymmetric), "rsa-3072"
-(asymmetric), "rsa-4096" (asymmetric), "ml-dsa" (asymmetric) are supported.  Defaults to "aes256-gcm96".
+(asymmetric), "rsa-4096" (asymmetric), "ml-dsa" (asymmetric), "secp256k1" (asymmetric) are supported.  Defaults to "secp256k1".
 `,
 			},
 
@@ -257,6 +258,8 @@ func (b *backend) pathPolicyWrite(ctx context.Context, req *logical.Request, d *
 		polReq.KeyType = keysutil.KeyType_AES192_CMAC
 	case "aes256-cmac":
 		polReq.KeyType = keysutil.KeyType_AES256_CMAC
+	case "secp256k1":
+		polReq.KeyType = keysutil.KeyType_SECP256K1
 	case "ml-dsa":
 		polReq.KeyType = keysutil.KeyType_ML_DSA
 
@@ -442,7 +445,7 @@ func (b *backend) formatKeyPolicy(p *keysutil.Policy, context []byte) (*logical.
 		}
 		resp.Data["keys"] = retKeys
 
-	case keysutil.KeyType_ECDSA_P256, keysutil.KeyType_ECDSA_P384, keysutil.KeyType_ECDSA_P521, keysutil.KeyType_ED25519, keysutil.KeyType_RSA2048, keysutil.KeyType_RSA3072, keysutil.KeyType_RSA4096, keysutil.KeyType_ML_DSA, keysutil.KeyType_HYBRID:
+	case keysutil.KeyType_SECP256K1, keysutil.KeyType_ECDSA_P256, keysutil.KeyType_ECDSA_P384, keysutil.KeyType_ECDSA_P521, keysutil.KeyType_ED25519, keysutil.KeyType_RSA2048, keysutil.KeyType_RSA3072, keysutil.KeyType_RSA4096, keysutil.KeyType_ML_DSA, keysutil.KeyType_HYBRID:
 		retKeys := map[string]map[string]interface{}{}
 		for k, v := range p.Keys {
 			key := asymKey{
@@ -466,6 +469,8 @@ func (b *backend) formatKeyPolicy(p *keysutil.Policy, context []byte) (*logical.
 			}
 
 			switch p.Type {
+			case keysutil.KeyType_SECP256K1:
+				key.Name = "secp256k1"
 			case keysutil.KeyType_ECDSA_P256:
 				key.Name = elliptic.P256().Params().Name
 			case keysutil.KeyType_ECDSA_P384:
@@ -552,6 +557,8 @@ func getHybridKeyConfig(pqcKeyType, parameterSet, ecKeyType string) (keysutil.Hy
 		config.ECKeyType = keysutil.KeyType_ECDSA_P384
 	case "ecdsa-p521":
 		config.ECKeyType = keysutil.KeyType_ECDSA_P521
+	case "secp256k1":
+		config.ECKeyType = keysutil.KeyType_SECP256K1
 	case "ed25519":
 		config.ECKeyType = keysutil.KeyType_ED25519
 	default:

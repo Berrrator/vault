@@ -12,8 +12,9 @@ import (
 	"strings"
 	"testing"
 
+	"transit-eth/sdk/helper/keysutil"
+
 	"github.com/hashicorp/vault/helper/constants"
-	"github.com/hashicorp/vault/sdk/helper/keysutil"
 	"github.com/hashicorp/vault/sdk/logical"
 	"github.com/mitchellh/mapstructure"
 	"github.com/stretchr/testify/require"
