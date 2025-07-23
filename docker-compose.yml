@@ -2,12 +2,12 @@ services:
   vault:
     container_name: vault
     hostname: vault
-    image: "localhost/vault"
+    image: "localhost/vault:latest"
     init: true
     environment:
-      VAULT_ADDR: "http://0.0.0.0:8200"
+      VAULT_ADDR: "http://0.0.0.0:8300"
     cap_add:
       - IPC_LOCK
     build: .
     ports:
-      - "8200:8200"
+      - "8300:8300"

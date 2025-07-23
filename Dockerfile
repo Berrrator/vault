@@ -11,13 +11,15 @@ WORKDIR /src
 COPY . .
 
 RUN go mod download && \
-    go build -o transiteth-plugin builtin/logical/transit/cmd/transit/main.go && \
-    chmod +x transiteth-plugin
+    go build -o transiteth builtin/logical/transit/cmd/transit/main.go && \
+    chmod +x transiteth
 
 RUN mkdir -p /opt/vault_plugins
 RUN mkdir -p /opt/vault_data
-RUN cp /src/transiteth-plugin /opt/vault_plugins/transiteth-plugin
+RUN cp /src/transiteth /opt/vault_plugins/transiteth
 COPY start.sh /start.sh
 RUN chmod +x /start.sh
+RUN chmod +x /usr/bin/vault
+RUN chmod +x /usr/sbin/vault
 
 CMD ["/start.sh"]
