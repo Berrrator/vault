@@ -2773,9 +2773,7 @@ func generateECDSAKey(keyType KeyType, entry *KeyEntry) error {
 	return nil
 }
 
-// generateSecp256k1Key создает secp256k1 приватный ключ и сохраняет его в entry
 func generateSecp256k1Key(keyType KeyType, entry *KeyEntry) error {
-	// Генерируем приватный ключ secp256k1
 	privKey, err := ethcrypto.GenerateKey()
 	if err != nil {
 		return err
