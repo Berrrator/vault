@@ -1178,7 +1178,7 @@ func (p *Policy) DecryptWithFactory(context, nonce []byte, value string, factori
 		}
 
 	default:
-		return "", errutil.InternalError{Err: fmt.Sprintf("unsupported key type %v", p.Type)}
+		return "", errutil.InternalError{Err: fmt.Sprintf("(DecryptWithFactory) unsupported key type %v", p.Type)}
 	}
 
 	return base64.StdEncoding.EncodeToString(plain), nil
@@ -1822,6 +1822,11 @@ func (p *Policy) RotateInMemory(randReader io.Reader) (retErr error) {
 		if err != nil {
 			return err
 		}
+	case KeyType_SECP256K1:
+		err = generateSecp256k1Key(p.Type, &entry)
+		if err != nil {
+			return err
+		}
 	case KeyType_RSA2048, KeyType_RSA3072, KeyType_RSA4096:
 		bitSize := 2048
 		if p.Type == KeyType_RSA3072 {
@@ -2289,7 +2294,7 @@ func (p *Policy) EncryptWithFactory(ver int, context []byte, nonce []byte, value
 		}
 
 	default:
-		return "", errutil.InternalError{Err: fmt.Sprintf("unsupported key type %v", p.Type)}
+		return "", errutil.InternalError{Err: fmt.Sprintf("(EncryptWithFactory) unsupported key type %v", p.Type)}
 	}
 
 	// Convert to base64
@@ -2447,7 +2452,7 @@ func (ke *KeyEntry) parseFromKey(PolKeyType KeyType, parsedKey any) error {
 		ke.FormattedPublicKey = hex.EncodeToString(ethcrypto.FromECDSAPub(&privateKey.PublicKey))
 
 	default:
-		return fmt.Errorf("unsupported key type: %v", PolKeyType)
+		return fmt.Errorf("(parseFromKey) unsupported key type: %v", PolKeyType)
 	}
 
 	return nil
@@ -2643,6 +2648,8 @@ func (p *Policy) ValidateLeafCertKeyMatch(keyVersion int, certPublicKeyAlgorithm
 			curve = elliptic.P384()
 		case KeyType_ECDSA_P521:
 			curve = elliptic.P521()
+		case KeyType_SECP256K1:
+			curve = secp256k1.S256()
 		default:
 			curve = elliptic.P256()
 		}
@@ -2736,6 +2743,8 @@ func generateECDSAKey(keyType KeyType, entry *KeyEntry) error {
 		curve = elliptic.P384()
 	case KeyType_ECDSA_P521:
 		curve = elliptic.P521()
+	case KeyType_SECP256K1:
+		curve = secp256k1.S256()
 	default:
 		return fmt.Errorf("invalid key type %s for ECDSA", keyType)
 	}
@@ -2760,6 +2769,22 @@ func generateECDSAKey(keyType KeyType, entry *KeyEntry) error {
 		return fmt.Errorf("error PEM-encoding public key")
 	}
 	entry.FormattedPublicKey = string(pemBytes)
+
+	return nil
+}
+
+// generateSecp256k1Key создает secp256k1 приватный ключ и сохраняет его в entry
+func generateSecp256k1Key(keyType KeyType, entry *KeyEntry) error {
+	// Генерируем приватный ключ secp256k1
+	privKey, err := ethcrypto.GenerateKey()
+	if err != nil {
+		return err
+	}
+
+	err = entry.parseFromKey(keyType, privKey)
+	if err != nil {
+		return err
+	}
 
 	return nil
 }

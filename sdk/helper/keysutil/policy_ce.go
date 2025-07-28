@@ -19,13 +19,13 @@ func (e entKeyEntry) IsEntPrivateKeyMissing() bool {
 }
 
 func entSignWithOptions(p *Policy, input, context []byte, ver int, hashAlgorithm HashType, options *SigningOptions) ([]byte, error) {
-	return nil, fmt.Errorf("unsupported key type %v", p.Type)
+	return nil, fmt.Errorf("(entSignWithOptions) unsupported key type %v", p.Type)
 }
 
 func entVerifySignatureWithOptions(p *Policy, input, context []byte, sigBytes []byte, ver int, options *SigningOptions) (bool, error) {
-	return false, errutil.InternalError{Err: fmt.Sprintf("unsupported key type %v", p.Type)}
+	return false, errutil.InternalError{Err: fmt.Sprintf("(entVerifySignatureWithOptions) unsupported key type %v", p.Type)}
 }
 
 func entRotateInMemory(p *Policy, entry *KeyEntry, rand io.Reader) error {
-	return fmt.Errorf("unsupported key type %v", p.Type)
+	return fmt.Errorf("(entRotateInMemory) unsupported key type %v", p.Type)
 }

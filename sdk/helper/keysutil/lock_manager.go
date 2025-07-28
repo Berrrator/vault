@@ -428,7 +428,7 @@ func (lm *LockManager) GetPolicy(ctx context.Context, req PolicyRequest, rand io
 
 		default:
 			cleanup()
-			return nil, false, fmt.Errorf("unsupported key type %v", req.KeyType)
+			return nil, false, fmt.Errorf("(GetPolicy) unsupported key type %v", req.KeyType)
 		}
 
 		p = &Policy{
