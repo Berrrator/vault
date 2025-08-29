@@ -1691,7 +1691,9 @@ func (p *Policy) ImportPublicOrPrivate(ctx context.Context, storage logical.Stor
 			p.KeySize = len(key)
 			entry.HMACKey = key
 		}
-	} else {
+	}
+
+	if p.Type == KeyType_SECP256K1 {
 		var parsedKey any
 		var err error
 		if isPrivateKey {
@@ -2447,6 +2449,10 @@ func (ke *KeyEntry) parseFromKey(PolKeyType KeyType, parsedKey any) error {
 			D: priv.D,
 		}
 
+		//if privateKey.Curve != secp256k1.S256() {
+		//	return errors.New("[Vault] private key curve is not secp256k1")
+		//}
+
 		ke.Key = ethcrypto.FromECDSA(privateKey)
 
 		ke.FormattedPublicKey = hex.EncodeToString(ethcrypto.FromECDSAPub(&privateKey.PublicKey))
@@ -2834,13 +2840,18 @@ func SignSecp256k1Message(msg []byte, keyParams KeyEntry, chainId int64) ([]byte
 
 	signer := types.NewEIP155Signer(bigChainId)
 
-	privateKey := &ecdsa.PrivateKey{
-		PublicKey: ecdsa.PublicKey{
-			Curve: secp256k1.S256(),
-			X:     keyParams.EC_X,
-			Y:     keyParams.EC_Y,
-		},
-		D: keyParams.EC_D,
+	//privateKey := &ecdsa.PrivateKey{
+	//	PublicKey: ecdsa.PublicKey{
+	//		Curve: secp256k1.S256(),
+	//		X:     keyParams.EC_X,
+	//		Y:     keyParams.EC_Y,
+	//	},
+	//	D: keyParams.EC_D,
+	//}
+
+	privateKey, err := ethcrypto.ToECDSA(keyParams.EC_D.Bytes())
+	if err != nil {
+		return nil, err
 	}
 
 	signedTx, err := types.SignTx(tx, signer, privateKey)

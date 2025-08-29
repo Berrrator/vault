@@ -1,25 +1,20 @@
-FROM fedora:latest
+ARG GO_VERSION=1.24.5
 
-RUN dnf install -y git golang make dnf-utils shadow-utils glibc-devel gcc
-RUN dnf config-manager addrepo --from-repofile=https://rpm.releases.hashicorp.com/AmazonLinux/hashicorp.repo
-RUN dnf install -y vault-1.19.4-1
-
-ENV GOPROXY=https://proxy.golang.org
+FROM --platform=$BUILDPLATFORM golang:${GO_VERSION} AS builder
 
 WORKDIR /src
+COPY go.mod go.sum ./
+RUN go mod download
 
 COPY . .
 
-RUN go mod download && \
-    go build -o transiteth builtin/logical/transit/cmd/transit/main.go && \
-    chmod +x transiteth
+RUN CGO_ENABLED=0 GOOS=linux go build -o transiteth ./builtin/logical/transit/cmd/transit/main.go
 
-RUN mkdir -p /opt/vault_plugins
-RUN mkdir -p /opt/vault_data
-RUN cp /src/transiteth /opt/vault_plugins/transiteth
-COPY start.sh /start.sh
-RUN chmod +x /start.sh
-RUN chmod +x /usr/bin/vault
-RUN chmod +x /usr/sbin/vault
+FROM hashicorp/vault:latest
 
-CMD ["/start.sh"]
+USER root
+RUN apk add --no-cache jq
+
+COPY --from=builder /src/transiteth /opt/vault_plugins/transiteth
+
+RUN chmod +x /opt/vault_plugins/transiteth
