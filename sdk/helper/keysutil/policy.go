@@ -1697,9 +1697,16 @@ func (p *Policy) ImportPublicOrPrivate(ctx context.Context, storage logical.Stor
 		var parsedKey any
 		var err error
 		if isPrivateKey {
-			parsedKey, err = tryParseSecp256k1FromPKCS8(key)
-			if parsedKey == nil || err != nil {
-				return fmt.Errorf("failed to parse secp256k1 private key (PKCS#8/SEC1): %w", err)
+			// It also checks the len of key in tryParseSecp256k1FromPKCS8 function
+			if pk, err := tryParseSecp256k1FromPKCS8(key); err == nil && pk != nil {
+				parsedKey = pk
+			} else if len(key) == 32 {
+				// Raw private key (exactly 32 bytes)
+				pk, err := ethcrypto.ToECDSA(key)
+				if err != nil {
+					return fmt.Errorf("invalid raw secp256k1 key: %w", err)
+				}
+				parsedKey = pk
 			}
 			err = entry.parseFromKey(KeyType_SECP256K1, parsedKey)
 			if err != nil {
@@ -1715,6 +1722,26 @@ func (p *Policy) ImportPublicOrPrivate(ctx context.Context, storage logical.Stor
 			if err != nil {
 				return fmt.Errorf("error parsing public key: %w", err)
 			}
+
+			pub, ok := parsedKey.(*ecdsa.PublicKey)
+			if !ok {
+				return fmt.Errorf("error parsing public key: expected ECDSA public key, got %T", parsedKey)
+			}
+
+			s256 := secp256k1.S256()
+			if pub.Curve == nil ||
+				pub.Curve.Params().P.Cmp(s256.Params().P) != 0 ||
+				pub.Curve.Params().N.Cmp(s256.Params().N) != 0 ||
+				pub.Curve.Params().B.Cmp(s256.Params().B) != 0 ||
+				pub.Curve.Params().Gx.Cmp(s256.Params().Gx) != 0 ||
+				pub.Curve.Params().Gy.Cmp(s256.Params().Gy) != 0 {
+				return fmt.Errorf("invalid curve: expected secp256k1 public key")
+			}
+
+			// Fix: Populate entry fields
+			entry.EC_X = pub.X
+			entry.EC_Y = pub.Y
+			entry.FormattedPublicKey = string(key)
 		}
 	}
 
@@ -2578,7 +2605,7 @@ func (p *Policy) CreateCsr(keyVersion int, csrTemplate *x509.CertificateRequest)
 		case KeyType_SECP256K1:
 			curve = secp256k1.S256()
 		default:
-			curve = secp256k1.S256()
+			curve = elliptic.P256()
 		}
 
 		key = &ecdsa.PrivateKey{
